@@ -228,10 +228,23 @@ category = "dev"
 optional = false
 python-versions = "*"
 
+[[package]]
+name = "xlrd"
+version = "2.0.1"
+description = "Library for developers to extract data from Microsoft Excel (tm) .xls spreadsheet files"
+category = "main"
+optional = false
+python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*"
+
+[package.extras]
+build = ["wheel", "twine"]
+docs = ["sphinx"]
+test = ["pytest", "pytest-cov"]
+
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "b6f64eab11d7e02f44d4f56b88149bdcd5380037793a4a0b1b1a54dbb60b5356"
+content-hash = "173a78c3e9320cdd49e083592c707a2e3c3deeb71bf3f258bc45d707dc9ef4a0"
 
 [metadata.files]
 apscheduler = [
@@ -305,3 +318,4 @@ wcwidth = [
     {file = "wcwidth-0.2.5-py2.py3-none-any.whl", hash = "sha256:beb4802a9cebb9144e99086eff703a642a13d6a0052920003a230f3294bbe784"},
     {file = "wcwidth-0.2.5.tar.gz", hash = "sha256:c4d647b99872929fdb7bdcaa4fbe7f01413ed3d98077df798530e5b04f116c83"},
 ]
+xlrd = []

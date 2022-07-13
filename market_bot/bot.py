@@ -4,18 +4,9 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKe
     KeyboardButton
 from telegram.ext import Updater, CallbackContext, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
-from market_bot.db_connection import connect_db, load_last_order, save_last_order
+from market_bot.db_connection import connect_db, load_last_order, save_last_order, get_category, get_products, \
+    save_order
 from settings import TOKEN, ORDERS_CHAT_ID
-
-countries = {'RU': '🇷🇺 Россия', 'FI': '🇫🇮 Финляндия', 'DE': '🇩🇪 Германия', 'US': '🇺🇸 США', 'LV': '🇱🇻 Латвия'}
-products = {
-    'RU': {
-        'Яблоко': ['Apple.jpg'],
-        'Груша': ['Pear.jpg']
-    },
-    'DE': {
-        'Витамин D3': ['D3.jpg', 'D3@rev.jpg']
-    }}
 
 user_cart = {}
 
@@ -48,16 +39,15 @@ def catalog(update: Update, context: CallbackContext):
     '''Вызов каталога по группам'''
     user = update.message.from_user
     logger.info("User %s open catalog", user.first_name)
-    global catalog_message_id
     buttons_in_row = 3
     buttons = [[]]
-    i = 0
-    for num, country in enumerate(countries.items()):
-        button = (InlineKeyboardButton(text=country[1], callback_data=f'country_{country[0]}'))
-        if (num + 1) % buttons_in_row == 0:
-            i += 1
+    row = 0
+    for category in get_category():
+        button = (InlineKeyboardButton(text=category[2], callback_data=f'country_{category[1]}'))
+        if category[0] % buttons_in_row == 0:
             buttons.append([])
-        buttons[i].append(button)
+            row += 1
+        buttons[row].append(button)
     keyboard = InlineKeyboardMarkup([button for button in buttons])
     context.bot.send_message(chat_id=update.effective_chat.id,
                              text='Каталог',
@@ -70,25 +60,35 @@ dispatcher.add_handler(menu_handler)
 
 def products_catalog(update: Update, context: CallbackContext):
     '''Вызов каталога товаров'''
+    ''' 0 -> id
+        1 -> category
+        2 -> name
+        3 -> img
+        4 -> price
+        5 -> rests
+        6 -> barcode'''
     global products
 
-    chosen_country = update.callback_query.data.split('_')[1]
-    if chosen_country in products.keys():
-        for product, photo_names in products[chosen_country].items():
-            buttons = ([InlineKeyboardButton(text='Добавить', callback_data=f'add_{product}'),
-                        InlineKeyboardButton(text='Убрать', callback_data=f'remove_{product}')],)
-
-            if len(photo_names) == 2:
-                compounds_url = f'products/{chosen_country}/{photo_names[1]}'
+    chosen_category = update.callback_query.data.split('_')[1]
+    category_list = get_category(chosen_category)
+    products = get_products(chosen_category)
+    if products:
+        for product in products:
+            buttons = ([InlineKeyboardButton(text='Добавить', callback_data=f'add_{product[2]}'),
+                        InlineKeyboardButton(text='Убрать', callback_data=f'remove_{product[2]}')],)
+            img = product[3].split(', ')
+            if len(img) > 1:
+                compounds_url = f'products/{category_list[1]}/{img[1]}'
                 buttons[0].append(InlineKeyboardButton(text='Состав', callback_data=f'roll_{compounds_url}'))
             keyboard = InlineKeyboardMarkup([button for button in buttons])
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f'{product} \n Цена: "в разработке"')
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f'{product[2]} '
+                                                                            f'\n Цена: {product[4]}')
             context.bot.send_photo(chat_id=update.effective_chat.id,
-                                   photo=open(f'products/{chosen_country}/{photo_names[0]}', 'rb'),
+                                   photo=open(f'products/{category_list[1]}/{img[0]}', 'rb'),
                                    disable_notification=True,
                                    reply_markup=keyboard)
     else:
-        context.bot.send_message(chat_id=update.effective_chat.id, text=f'Товаров из {countries[chosen_country]} нет')
+        context.bot.send_message(chat_id=update.effective_chat.id, text=f'Товаров из {category_list[2]} нет')
 
 
 catalog_handler = CallbackQueryHandler(products_catalog, pattern="^" + str('country_'))
@@ -225,6 +225,7 @@ def order(update: Update, context: CallbackContext):
                                   message_id=call.message.message_id)
     user_cart = {}
 
+    save_order(call.from_user.username, order_num, call.message.text)
     save_last_order(db, cur, order_num)
 
 
@@ -278,7 +279,7 @@ dispatcher.add_handler(remove_message)
 
 def unknown(update: Update, context: CallbackContext):
     '''Неизветсные команды'''
-    context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I didn't understand that command.")
+    context.bot.send_message(chat_id=update.effective_chat.id, text="Я не знаю такой команды")
 
 
 unknown_handler = MessageHandler(Filters.command, unknown)

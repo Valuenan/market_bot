@@ -4,6 +4,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKe
     KeyboardButton
 from telegram.ext import Updater, CallbackContext, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
+from market_bot.db_connection import connect_db, load_last_order, save_last_order
 from settings import TOKEN, ORDERS_CHAT_ID
 
 countries = {'RU': '🇷🇺 Россия', 'FI': '🇫🇮 Финляндия', 'DE': '🇩🇪 Германия', 'US': '🇺🇸 США', 'LV': '🇱🇻 Латвия'}
@@ -16,7 +17,6 @@ products = {
         'Витамин D3': ['D3.jpg', 'D3@rev.jpg']
     }}
 
-order_num = 1
 user_cart = {}
 
 updater = Updater(token=TOKEN)
@@ -207,10 +207,11 @@ dispatcher.add_handler(cancel_cart_handler)
 def order(update: Update, context: CallbackContext):
     '''Оформить заявку (переслать в канал менеджеров)'''
     global user_cart
-    global order_num
+    db, cur = connect_db()
+    order_num = load_last_order(cur)
 
     call = update.callback_query
-    order_message = f'Номер заказа: {order_num} \n {call.message.text}'
+    order_message = f'Заказ №: {order_num} \n {call.message.text}'
     context.bot.answer_callback_query(callback_query_id=call.id,
                                       text=f'Ваш заказ номер {order_num} принят, ожидайте звонка менеджера')
     context.bot.edit_message_text(text=order_message,
@@ -219,9 +220,12 @@ def order(update: Update, context: CallbackContext):
     context.bot.forward_message(chat_id=ORDERS_CHAT_ID,
                                 from_chat_id=call.message.chat_id,
                                 message_id=call.message.message_id)
-    context.bot.delete_message(chat_id=call.message.chat.id,
-                               message_id=call.message.message_id)
-    order_num += 1
+    context.bot.edit_message_text(text=f'Ваш номер заказа №: {order_num}',
+                                  chat_id=call.message.chat.id,
+                                  message_id=call.message.message_id)
+    user_cart = {}
+
+    save_last_order(db, cur, order_num)
 
 
 order_cart_handler = CallbackQueryHandler(order, pattern=str('order'))

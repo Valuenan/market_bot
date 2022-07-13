@@ -130,8 +130,7 @@ def get_category(command_filter=None) -> list:
 
 def get_products(command_filter: str) -> list:
     db, cur = connect_db()
-    categories = cur.execute(f"SELECT * FROM products WHERE category='{command_filter}'").fetchall()
-    return categories
+    return cur.execute(f"SELECT * FROM products WHERE category='{command_filter}'").fetchall()
 
 
 def load_last_order(cur) -> int:
@@ -142,6 +141,11 @@ def save_last_order(db, cur, order_num: int):
     cur.execute(f"UPDATE order_num SET last_order={order_num + 1}")
     db.commit()
     db.close()
+
+
+def get_user_orders(user: str) -> list:
+    db, cur = connect_db()
+    return cur.execute(f"SELECT * FROM orders WHERE user='{user}'").fetchall()
 
 
 if __name__ == '__main__':

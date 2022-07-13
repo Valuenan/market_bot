@@ -5,7 +5,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKe
 from telegram.ext import Updater, CallbackContext, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
 from market_bot.db_connection import connect_db, load_last_order, save_last_order, get_category, get_products, \
-    save_order
+    save_order, get_user_orders
 from settings import TOKEN, ORDERS_CHAT_ID
 
 user_cart = {}
@@ -17,9 +17,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# TODO добавить историю заказов у клиента
-# [KeyboardButton(text='Мои заказы')]
-button_column = [[KeyboardButton(text='Меню'), KeyboardButton(text='Корзина')], ]
+button_column = [[KeyboardButton(text='Меню'), KeyboardButton(text='Корзина')], [KeyboardButton(text='Мои заказы')]]
 main_kb = ReplyKeyboardMarkup([button for button in button_column], resize_keyboard=True)
 
 
@@ -275,6 +273,24 @@ def remove_bot_message(update: Update, context: CallbackContext):
 
 remove_message = CallbackQueryHandler(remove_bot_message, pattern=str('remove-message'))
 dispatcher.add_handler(remove_message)
+
+
+def orders_history(update: Update, context: CallbackContext):
+    '''Вызов истории покупок'''
+    user = update.message.from_user.username
+    orders = get_user_orders(user)
+    text = ''
+    for order in orders:
+        text += f'''Заказ № {order[2]} \n {order[3]} \n {"_" * 20} \n'''
+
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Закрыть', callback_data='remove-message')]])
+    context.bot.send_message(chat_id=update.effective_chat.id,
+                             text=text,
+                             reply_markup=keyboard)
+
+
+orders_history_handler = MessageHandler(Filters.text('Мои заказы'), orders_history)
+dispatcher.add_handler(orders_history_handler)
 
 
 def unknown(update: Update, context: CallbackContext):

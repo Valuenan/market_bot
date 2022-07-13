@@ -4,9 +4,8 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKe
     KeyboardButton
 from telegram.ext import Updater, CallbackContext, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
-import settings
+from settings import TOKEN, ORDERS_CHAT_ID
 
-ORDERS_CHAT_ID = -1001798504591
 countries = {'RU': '🇷🇺 Россия', 'FI': '🇫🇮 Финляндия', 'DE': '🇩🇪 Германия', 'US': '🇺🇸 США', 'LV': '🇱🇻 Латвия'}
 products = {
     'RU': {
@@ -17,20 +16,24 @@ products = {
         'Витамин D3': ['D3.jpg', 'D3@rev.jpg']
     }}
 
+order_num = 1
 user_cart = {}
 
-updater = Updater(token=settings.TOKEN)
+updater = Updater(token=TOKEN)
 dispatcher = updater.dispatcher
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-button_column = [[KeyboardButton(text='/menu'), KeyboardButton(text='/cart')]]
+# TODO добавить историю заказов у клиента
+# [KeyboardButton(text='Мои заказы')]
+button_column = [[KeyboardButton(text='Меню'), KeyboardButton(text='Корзина')], ]
 main_kb = ReplyKeyboardMarkup([button for button in button_column], resize_keyboard=True)
 
 
 def main_keyboard(update: Update, context: CallbackContext):
+    '''Основаня клавиатура снизу'''
     user = update.message.from_user
     logger.info("User %s 'start'", user.first_name)
     context.bot.send_message(chat_id=update.effective_chat.id, text=f'Добро пожаловать {user.first_name}',
@@ -42,6 +45,7 @@ dispatcher.add_handler(start_handler)
 
 
 def catalog(update: Update, context: CallbackContext):
+    '''Вызов каталога по группам'''
     user = update.message.from_user
     logger.info("User %s open catalog", user.first_name)
     global catalog_message_id
@@ -60,11 +64,12 @@ def catalog(update: Update, context: CallbackContext):
                              reply_markup=keyboard)
 
 
-menu_handler = CommandHandler('menu', catalog)
+menu_handler = MessageHandler(Filters.text('Меню'), catalog)
 dispatcher.add_handler(menu_handler)
 
 
 def products_catalog(update: Update, context: CallbackContext):
+    '''Вызов каталога товаров'''
     global products
 
     chosen_country = update.callback_query.data.split('_')[1]
@@ -91,6 +96,7 @@ dispatcher.add_handler(catalog_handler)
 
 
 def roll_photo(update: Update, context: CallbackContext):
+    '''Показать фото с составом и обратно'''
     call = update.callback_query
 
     photo_url = call.data.split('_')[1]
@@ -122,6 +128,7 @@ dispatcher.add_handler(roll_photo_handler)
 
 
 def add(update: Update, context: CallbackContext):
+    '''Добавить в корзину товар'''
     global user_cart
     call = update.callback_query
     product = call.data.split('_')[1]
@@ -137,10 +144,16 @@ dispatcher.add_handler(catalog_handler)
 
 
 def remove(update: Update, context: CallbackContext):
+    '''Удалить из корзины товар'''
     global user_cart
     call = update.callback_query
     product = call.data.split('_')[1]
-    if product in user_cart:
+    if product not in user_cart or user_cart[product] == 1:
+        context.bot.answer_callback_query(callback_query_id=call.id,
+                                          text=f'В корзине {product} - 0 шт.')
+        if product in user_cart:
+            user_cart.pop(product)
+    elif product in user_cart:
         user_cart[product] -= 1
         context.bot.answer_callback_query(callback_query_id=call.id,
                                           text=f'В корзине {product} - {user_cart[product]} шт.')
@@ -153,36 +166,38 @@ dispatcher.add_handler(catalog_handler)
 
 
 def cart(update: Update, context: CallbackContext):
+    '''Показать корзину покупателя'''
     global user_cart
-
     if update.callback_query:
         user = update.callback_query.message.chat.username
-        chat_id = update.callback_query.message.chat_id
-        message_id = update.callback_query.message.message_id
     else:
-        chat_id = update.effective_chat.id
         user = update.message.from_user.username
     cart_message = f'Корзина {user}: \n'
-    buttons = []
     if len(user_cart) > 0:
         buttons = ([InlineKeyboardButton(text='Заказать', callback_data='order'),
                     InlineKeyboardButton(text='Отчистить', callback_data='delete-cart')],)
+        keyboard = InlineKeyboardMarkup([button for button in buttons])
 
-    keyboard = InlineKeyboardMarkup([button for button in buttons])
+        for product in user_cart:
+            cart_message += f'{product} - {user_cart[product]} шт. \n'
 
-    for product in user_cart:
-        cart_message += f'{product} - {user_cart[product]} шт. \n'
-
-    if update.callback_query:
-        context.bot.edit_message_text(chat_id=chat_id,
-                                      message_id=message_id,
-                                      text=cart_message,
-                                      reply_markup=keyboard)
+        if update.callback_query:
+            chat_id = update.callback_query.message.chat_id
+            message_id = update.callback_query.message.message_id
+            context.bot.edit_message_text(chat_id=chat_id,
+                                          message_id=message_id,
+                                          text=cart_message,
+                                          reply_markup=keyboard)
+        else:
+            context.bot.send_message(chat_id=update.effective_chat.id, text=cart_message, reply_markup=keyboard)
     else:
-        context.bot.send_message(chat_id=chat_id, text=cart_message, reply_markup=keyboard)
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Закрыть', callback_data='remove-message')]])
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text=f'Корзина пустая',
+                                 reply_markup=keyboard)
 
 
-cart_handler = CommandHandler('cart', cart)
+cart_handler = MessageHandler(Filters.text('Корзина'), cart)
 dispatcher.add_handler(cart_handler)
 
 cancel_cart_handler = CallbackQueryHandler(cart, pattern=str('cancel-delete-cart'))
@@ -190,13 +205,23 @@ dispatcher.add_handler(cancel_cart_handler)
 
 
 def order(update: Update, context: CallbackContext):
+    '''Оформить заявку (переслать в канал менеджеров)'''
     global user_cart
-    call = update.callback_query.message
+    global order_num
+
+    call = update.callback_query
+    order_message = f'Номер заказа: {order_num} \n {call.message.text}'
+    context.bot.answer_callback_query(callback_query_id=call.id,
+                                      text=f'Ваш заказ номер {order_num} принят, ожидайте звонка менеджера')
+    context.bot.edit_message_text(text=order_message,
+                                  chat_id=call.message.chat.id,
+                                  message_id=call.message.message_id)
     context.bot.forward_message(chat_id=ORDERS_CHAT_ID,
-                                from_chat_id=call.chat_id,
-                                message_id=call.message_id)
-    # context.bot.delete_message(chat_id=call.chat.id,
-    #                            message_id=call.message_id)
+                                from_chat_id=call.message.chat_id,
+                                message_id=call.message.message_id)
+    context.bot.delete_message(chat_id=call.message.chat.id,
+                               message_id=call.message.message_id)
+    order_num += 1
 
 
 order_cart_handler = CallbackQueryHandler(order, pattern=str('order'))
@@ -204,6 +229,7 @@ dispatcher.add_handler(order_cart_handler)
 
 
 def delete_cart(update: Update, context: CallbackContext):
+    '''Отчистить корзину'''
     call = update.callback_query
     global user_cart
     buttons = ([InlineKeyboardButton(text='Вернуться', callback_data='cancel-delete-cart'),
@@ -222,6 +248,7 @@ dispatcher.add_handler(delete_cart_handler)
 
 
 def accept_delete_cart(update: Update, context: CallbackContext):
+    '''Подтвердить удаление корзины'''
     global user_cart
     call = update.callback_query
     user_cart = {}
@@ -234,7 +261,19 @@ accept_cart_handler = CallbackQueryHandler(accept_delete_cart, pattern=str('acce
 dispatcher.add_handler(accept_cart_handler)
 
 
+def remove_bot_message(update: Update, context: CallbackContext):
+    '''Закрыть сообщение бота'''
+    call = update.callback_query
+    context.bot.delete_message(chat_id=call.message.chat.id,
+                               message_id=call.message.message_id)
+
+
+remove_message = CallbackQueryHandler(remove_bot_message, pattern=str('remove-message'))
+dispatcher.add_handler(remove_message)
+
+
 def unknown(update: Update, context: CallbackContext):
+    '''Неизветсные команды'''
     context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I didn't understand that command.")
 
 

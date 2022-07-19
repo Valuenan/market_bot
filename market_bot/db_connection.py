@@ -2,6 +2,7 @@ import sqlite3
 import xlrd
 
 BD = 'data/data.db'
+PRODUCTS_PAGINATION_NUM = 5
 
 
 def connect_db():
@@ -148,10 +149,17 @@ def get_category(command_filter=None) -> list:
         return categories
 
 
-def get_products(command_filter: str) -> list:
-    '''Получить список товаров'''
+def get_products(command_filter: str, page: int) -> (list, int):
+    '''Получить список товаров и пагинация'''
     db, cur = connect_db()
-    return cur.execute(f"SELECT * FROM products WHERE category='{command_filter}'").fetchall()
+    products = cur.execute(f"SELECT * FROM products WHERE category='{command_filter}'").fetchall()
+    if len(products) > PRODUCTS_PAGINATION_NUM:
+        count_pages = len(products) // PRODUCTS_PAGINATION_NUM
+        start = page * PRODUCTS_PAGINATION_NUM
+        end = start + PRODUCTS_PAGINATION_NUM
+        return products[start: end], count_pages
+    else:
+        return products, None
 
 
 def edit_to_cart(command: str, user: str, product_id: int) -> (int, str):

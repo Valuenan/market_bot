@@ -8,8 +8,6 @@ from market_bot.db_connection import connect_db, load_last_order, save_last_orde
     save_order, get_user_orders, edit_to_cart, show_cart
 from settings import TOKEN, ORDERS_CHAT_ID
 
-PRODUCTS_PAGINATION_NUM = 5
-
 updater = Updater(token=TOKEN)
 dispatcher = updater.dispatcher
 
@@ -41,7 +39,7 @@ def catalog(update: Update, context: CallbackContext):
     buttons = [[]]
     row = 0
     for category in get_category():
-        button = (InlineKeyboardButton(text=category[2], callback_data=f'country_{category[1]}'))
+        button = (InlineKeyboardButton(text=category[2], callback_data=f'category_{category[1]}'))
         if category[0] % buttons_in_row == 0:
             buttons.append([])
             row += 1
@@ -59,8 +57,16 @@ dispatcher.add_handler(menu_handler)
 def products_catalog(update: Update, context: CallbackContext):
     '''Вызов каталога товаров'''
     chosen_category = update.callback_query.data.split('_')[1]
+    page = 0
+    pagination = False
+
+    if '#' in chosen_category:
+        chosen_category, page = chosen_category.split('#')
+        page = int(page)
     _, command, category_name = get_category(chosen_category)
-    products = get_products(chosen_category)
+    products, pages = get_products(chosen_category, page)
+    if pages:
+        pagination = True
     if products:
         for product in products:
             product_id, category, product_name, product_img, price, rests, barcode = product
@@ -84,12 +90,19 @@ def products_catalog(update: Update, context: CallbackContext):
                                    photo=open(f'products/{imgs[0]}', 'rb'),
                                    disable_notification=True,
                                    reply_markup=keyboard)
+        if pagination:
+            keyboard_next = InlineKeyboardMarkup([[InlineKeyboardButton(text='Еще товары',
+                                                                        callback_data=f'category_{chosen_category}#{page+1}')]])
+            context.bot.send_message(chat_id=update.effective_chat.id,
+                                     text=f'Страница {page} из {pages}',
+                                     disable_notification=True,
+                                     reply_markup=keyboard_next)
 
     else:
         context.bot.send_message(chat_id=update.effective_chat.id, text=f'Товаров из {category_name} нет')
 
 
-catalog_handler = CallbackQueryHandler(products_catalog, pattern="^" + str('country_'))
+catalog_handler = CallbackQueryHandler(products_catalog, pattern="^" + str('category_'))
 dispatcher.add_handler(catalog_handler)
 
 
@@ -127,7 +140,7 @@ dispatcher.add_handler(roll_photo_handler)
 
 def edit(update: Update, context: CallbackContext):
     '''Добавить/Удаить товар в корзине'''
-    global user_cart
+    
     call = update.callback_query
     user = call.from_user.username
     command, product_id = call.data.split('_')
@@ -218,7 +231,7 @@ dispatcher.add_handler(order_cart_handler)
 def delete_cart(update: Update, context: CallbackContext):
     '''Очистить корзину'''
     call = update.callback_query
-    global user_cart
+    
     buttons = ([InlineKeyboardButton(text='Вернуться', callback_data='cancel-delete-cart'),
                 InlineKeyboardButton(text='Удалить', callback_data='accept-delete-cart')],)
 
@@ -236,9 +249,8 @@ dispatcher.add_handler(delete_cart_handler)
 
 def accept_delete_cart(update: Update, context: CallbackContext):
     '''Подтвердить удаление корзины'''
-    global user_cart
+    
     call = update.callback_query
-    user_cart = {}
     context.bot.delete_message(chat_id=call.message.chat.id,
                                message_id=call.message.message_id)
     context.bot.answer_callback_query(callback_query_id=call.id, text=f'Корзина отчищена')

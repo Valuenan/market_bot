@@ -5,7 +5,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKe
 from telegram.ext import Updater, CallbackContext, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
 from market_bot.db_connection import connect_db, load_last_order, save_last_order, get_category, get_products, \
-    save_order, get_user_orders, edit_to_cart, show_cart
+    save_order, get_user_orders, edit_to_cart, show_cart, db_delete_cart
 from settings import TOKEN, ORDERS_CHAT_ID
 
 updater = Updater(token=TOKEN)
@@ -249,11 +249,12 @@ dispatcher.add_handler(delete_cart_handler)
 
 def accept_delete_cart(update: Update, context: CallbackContext):
     '''Подтвердить удаление корзины'''
-    
+
     call = update.callback_query
+    db_delete_cart(call.message.chat.username)
     context.bot.delete_message(chat_id=call.message.chat.id,
                                message_id=call.message.message_id)
-    context.bot.answer_callback_query(callback_query_id=call.id, text=f'Корзина отчищена')
+    context.bot.answer_callback_query(callback_query_id=call.id, text=f'Корзина очищена')
 
 
 accept_cart_handler = CallbackQueryHandler(accept_delete_cart, pattern=str('accept-delete-cart'))

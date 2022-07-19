@@ -20,7 +20,7 @@ def db_create():
     cur.execute("INSERT INTO order_num (last_order) VALUES ('1')")
 
     cur.execute('''CREATE TABLE carts (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                        user int NOT NULL, 
+                                        user str NOT NULL, 
                                         product str NOT NULL,
                                         amount int DEFAULT "0" NOT NULL,
                                         price int DEFAULT "0" NOT NULL)''')
@@ -203,6 +203,14 @@ def show_cart(user: str) -> list:
     db.commit()
     db.close()
     return cart_list
+
+
+def db_delete_cart(user: str):
+    '''Удалить корзину'''
+    db, cur = connect_db()
+    cur.execute(f"DELETE FROM carts WHERE user='{user}'")
+    db.commit()
+    db.close()
 
 
 def load_last_order(cur) -> int:

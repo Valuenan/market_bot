@@ -8,7 +8,7 @@ from market_bot.db_connection import connect_db, load_last_order, save_last_orde
     save_order, get_user_orders, edit_to_cart, show_cart
 from settings import TOKEN, ORDERS_CHAT_ID
 
-user_cart = {}
+PRODUCTS_PAGINATION_NUM = 5
 
 updater = Updater(token=TOKEN)
 dispatcher = updater.dispatcher
@@ -63,14 +63,14 @@ def products_catalog(update: Update, context: CallbackContext):
     products = get_products(chosen_category)
     if products:
         for product in products:
-            product_id, category, product_name, product_img, price, rests,barcode = product
+            product_id, category, product_name, product_img, price, rests, barcode = product
             buttons = ([InlineKeyboardButton(text='Добавить', callback_data=f'add_{product_id}'),
                         InlineKeyboardButton(text='Убрать', callback_data=f'remove_{product_id}')],)
             imgs = [product_img]
             try:
                 img_reversed = product_img.replace('.', '@rev.')
-                open(img_reversed)
-                imgs.append(img_reversed)
+                open(f'products/{img_reversed}')
+                imgs.append(f'{img_reversed}')
             except FileNotFoundError:
                 pass
 
@@ -78,12 +78,13 @@ def products_catalog(update: Update, context: CallbackContext):
                 compounds_url = f'products/{imgs[1]}'
                 buttons[0].append(InlineKeyboardButton(text='Состав', callback_data=f'roll_{compounds_url}'))
             keyboard = InlineKeyboardMarkup([button for button in buttons])
-            context.bot.send_photo(chat_id=update.effective_chat.id,
-                                   photo=open(f'products/{imgs[0]}', 'rb'))
             context.bot.send_message(chat_id=update.effective_chat.id, text=f'{product_name} '
-                                                                            f'\n Цена: {price}',
-                                     disable_notification=True,
-                                     reply_markup=keyboard)
+                                                                            f'\n Цена: {price}')
+            context.bot.send_photo(chat_id=update.effective_chat.id,
+                                   photo=open(f'products/{imgs[0]}', 'rb'),
+                                   disable_notification=True,
+                                   reply_markup=keyboard)
+
     else:
         context.bot.send_message(chat_id=update.effective_chat.id, text=f'Товаров из {category_name} нет')
 

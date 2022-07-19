@@ -64,19 +64,26 @@ def products_catalog(update: Update, context: CallbackContext):
     if products:
         for product in products:
             product_id, category, product_name, product_img, price, rests,barcode = product
-            buttons = ([InlineKeyboardButton(text='Добавить', callback_data=f'add_{product_name}'),
-                        InlineKeyboardButton(text='Убрать', callback_data=f'remove_{product_name}')],)
-            img = product_img.split(', ')
-            if len(img) > 1:
-                compounds_url = f'products/{command}/{img[1]}'
+            buttons = ([InlineKeyboardButton(text='Добавить', callback_data=f'add_{product_id}'),
+                        InlineKeyboardButton(text='Убрать', callback_data=f'remove_{product_id}')],)
+            imgs = [product_img]
+            try:
+                img_reversed = product_img.replace('.', '@rev.')
+                open(img_reversed)
+                imgs.append(img_reversed)
+            except FileNotFoundError:
+                pass
+
+            if len(imgs) > 1:
+                compounds_url = f'products/{imgs[1]}'
                 buttons[0].append(InlineKeyboardButton(text='Состав', callback_data=f'roll_{compounds_url}'))
             keyboard = InlineKeyboardMarkup([button for button in buttons])
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f'{product_name} '
-                                                                            f'\n Цена: {price}')
             context.bot.send_photo(chat_id=update.effective_chat.id,
-                                   photo=open(f'products/{command}/{img[0]}', 'rb'),
-                                   disable_notification=True,
-                                   reply_markup=keyboard)
+                                   photo=open(f'products/{imgs[0]}', 'rb'))
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f'{product_name} '
+                                                                            f'\n Цена: {price}',
+                                     disable_notification=True,
+                                     reply_markup=keyboard)
     else:
         context.bot.send_message(chat_id=update.effective_chat.id, text=f'Товаров из {category_name} нет')
 
@@ -122,9 +129,9 @@ def edit(update: Update, context: CallbackContext):
     global user_cart
     call = update.callback_query
     user = call.from_user.username
-    command, product = call.data.split('_')
+    command, product_id = call.data.split('_')
 
-    product_amount = edit_to_cart(command, user, product)
+    product_amount, product = edit_to_cart(command, user, product_id)
     context.bot.answer_callback_query(callback_query_id=call.id, text=f'В корзине {product} - {product_amount} шт.')
 
 
@@ -153,7 +160,7 @@ def cart(update: Update, context: CallbackContext):
             cart_message += f'Итого: {cart_price} р.'
 
         buttons = ([InlineKeyboardButton(text='Заказать', callback_data=f'order_{cart_price}'),
-                    InlineKeyboardButton(text='Отчистить', callback_data='delete-cart')],)
+                    InlineKeyboardButton(text='Очистить', callback_data='delete-cart')],)
         keyboard = InlineKeyboardMarkup([button for button in buttons])
 
         if update.callback_query:
@@ -208,7 +215,7 @@ dispatcher.add_handler(order_cart_handler)
 
 
 def delete_cart(update: Update, context: CallbackContext):
-    '''Отчистить корзину'''
+    '''Очистить корзину'''
     call = update.callback_query
     global user_cart
     buttons = ([InlineKeyboardButton(text='Вернуться', callback_data='cancel-delete-cart'),

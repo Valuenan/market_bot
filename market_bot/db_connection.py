@@ -1,9 +1,11 @@
 import sqlite3
 import xlrd
 
+BD = 'data/data.db'
+
 
 def connect_db():
-    db = sqlite3.connect('data.db')
+    db = sqlite3.connect(BD)
     cur = db.cursor()
     return db, cur
 
@@ -35,10 +37,10 @@ def db_create():
     cur.execute('''CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT,
                                            category int NOT NULL, 
                                            name str NOT NULL,
-                                           img str DEFAULT "no-image.jpg" NOT NULL,
+                                           img str NOT NULL,
                                            price int NOT NULL,
-                                           rests int NOT NULL,
-                                           barcode int,
+                                           rests_prachecniy int NOT NULL,
+                                           rests_kievskaya int NOT NULL,
                                            FOREIGN KEY(category) REFERENCES categories(id))''')
 
     db.commit()
@@ -46,32 +48,37 @@ def db_create():
 
 
 def _insert_data_to_db(table: str, cur, data: list):
-    '''Сохранить данные из exel в БД'''
+    '''Добавить (отсутсвуют в таблице) данные из exel в БД'''
     if table == 'categories':
         cur.execute(f"INSERT INTO {table} (command, button_label) VALUES (?, ?)", data)
     elif table == 'products':
-        cur.execute(f"INSERT INTO {table} (category, name, img, price, rests, barcode) VALUES (?, ?, ?, ?, ?, ?)", data)
+        cur.execute(
+            f"INSERT INTO {table} (name, img, category, rests_kievskaya, price, rests_prachecniy ) VALUES (?, ?, ?, ?, ?, ?)",
+            data)
     else:
         raise Exception('No such table')
 
 
-def _wright_data(db, cur, table: str, data: list, row: int):
-    '''Запись данных из exel'''
+def _write_data(db, cur, table: str, data: list):
+    '''Запись (обновновление) данных из exel'''
     try:
-        data_db = list(cur.execute(f"SELECT * FROM {table} WHERE id='{row}'").fetchone())
-        id = data_db.pop(0)
-        if data_db != data:
+        if table == 'categories':
+            data_db = list(cur.execute(f"SELECT * FROM {table} WHERE command='{data[0]}'").fetchone())
+        elif table == 'products':
+            data_db = list(cur.execute(f"SELECT * FROM {table} WHERE name='{data[0]}'").fetchone())
+        db_name = data_db.pop(1)
+        if db_name == data[0]:
             if table == 'categories':
-                cur.execute(f"UPDATE {table} SET command=?, button_label=? WHERE id='{id}'", data)
+                cur.execute(f"UPDATE {table} SET command='{data}', button_label='{data}' WHERE name='{db_name}'")
             elif table == 'products':
                 cur.execute(
-                    f"""UPDATE {table} SET category={data[0]},
-                                            name={data[1]}, 
-                                            img={data[2]}, 
-                                            price={data[3]},
-                                            rests={data[4]} 
-                                            barcode= {data[5]} 
-                                            WHERE  id={id}""")
+                    f"""UPDATE {table} SET category={data[2]},
+                                            name={data[0]}, 
+                                            img={data[1]}, 
+                                            price={data[5]},
+                                            rests_prachecniy = {data[4]},
+                                            rests_kievskaya = {data[3]}
+                                            WHERE  name={db_name}""")
     except sqlite3.OperationalError:
         _insert_data_to_db(table, cur, data)
     except TypeError:
@@ -81,38 +88,47 @@ def _wright_data(db, cur, table: str, data: list, row: int):
 
 def load_data_from_exel():
     '''Загрузка данных из exel'''
-    workbook = xlrd.open_workbook("Товары.xls")
+    workbook = xlrd.open_workbook("data/номенкалтура.xls")
     db, cur = connect_db()
-
-    '''Загружаем категории'''
-    categories = workbook.sheet_by_index(1)
-    row = 1
-
-    while True:
-        data = ['', '']
-        try:
-            for col in range(2):
-                value = categories.cell_value(row, col)
-                data[col] = value
-                if col == 1:
-                    _wright_data(db, cur, 'categories', data, row)
-
-            row += 1
-        except IndexError:
-            break
 
     '''Загружаем товары'''
     products = workbook.sheet_by_index(0)
-    row = 1
+    row = 3
     while True:
-        data = ['', '', '', '', '', '']
+        data = []
         try:
-            for col in range(6):
+            for col in range(7):
 
                 value = products.cell_value(row, col)
-                data[col] = value
+
+                if col == 1:
+                    if value == ', ':
+                        value = "no-image.jpg"
+                    else:
+                        value = value.replace(', ', '.')
+                if col == 2:
+                    '''Загружаем категории'''
+                    value = products.cell_value(row, col)
+                    category = [value, value]
+                    _write_data(db, cur, 'categories', category)
+                if col == 3:
+                    if value == '':
+                        value = 0
+
+                if col == 4 and data[3] != 0:
+                    value /= int(data[3])
+                elif col == 4 and data[3] == 0:
+                    value = 0
                 if col == 5:
-                    _wright_data(db, cur, 'products', data, row)
+                    if value == '':
+                        value = 0
+                if col == 6 and data[5] != 0:
+                    value /= int(data[5])
+                    data[4] = value
+                if col != 6:
+                    data.append(value)
+            else:
+                _write_data(db, cur, 'products', data)
             row += 1
         except IndexError:
             break
@@ -138,9 +154,10 @@ def get_products(command_filter: str) -> list:
     return cur.execute(f"SELECT * FROM products WHERE category='{command_filter}'").fetchall()
 
 
-def edit_to_cart(command: str, user: str, product: str) -> int:
+def edit_to_cart(command: str, user: str, product_id: int) -> (int, str):
     '''Добавить/Удалить товар из корзины'''
     db, cur = connect_db()
+    product = cur.execute(f"SELECT name FROM products WHERE id='{product_id}'").fetchone()[0]
     product_info = cur.execute(
         f"SELECT product, amount FROM carts WHERE user='{user}' and product='{product}'").fetchone()
     if product_info is None and command == 'add':
@@ -164,7 +181,7 @@ def edit_to_cart(command: str, user: str, product: str) -> int:
                 f"UPDATE carts SET product='{product}', amount='{amount}' WHERE user='{user}' and product='{product}'")
     db.commit()
     db.close()
-    return amount
+    return amount, product
 
 
 def show_cart(user: str) -> list:

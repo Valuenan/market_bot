@@ -5,7 +5,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKe
 from telegram.ext import Updater, CallbackContext, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 
 from market_bot.db_connection import connect_db, load_last_order, save_last_order, get_category, get_products, \
-    save_order, get_user_orders, edit_to_cart, show_cart, db_delete_cart
+    save_order, get_user_orders, edit_to_cart, show_cart, db_delete_cart, get_product_id
 from settings import TOKEN, ORDERS_CHAT_ID
 
 updater = Updater(token=TOKEN)
@@ -92,7 +92,7 @@ def products_catalog(update: Update, context: CallbackContext):
                                    reply_markup=keyboard)
         if pagination:
             keyboard_next = InlineKeyboardMarkup([[InlineKeyboardButton(text='Еще товары',
-                                                                        callback_data=f'category_{chosen_category}#{page+1}')]])
+                                                                        callback_data=f'category_{chosen_category}#{page + 1}')]])
             context.bot.send_message(chat_id=update.effective_chat.id,
                                      text=f'Страница {page} из {pages}',
                                      disable_notification=True,
@@ -140,7 +140,7 @@ dispatcher.add_handler(roll_photo_handler)
 
 def edit(update: Update, context: CallbackContext):
     '''Добавить/Удаить товар в корзине'''
-    
+
     call = update.callback_query
     user = call.from_user.username
     command, product_id = call.data.split('_')
@@ -166,15 +166,17 @@ def cart(update: Update, context: CallbackContext):
     cart_price = 0
     cart_message = f'Корзина {user}: \n'
     if len(cart_info) > 0:
-        for product in cart_info:
+        for num, product in enumerate(cart_info):
             product_name, amount, price = product
             cart_price += price * amount
-            cart_message += f'{product_name} - {amount} шт. - {price} р.\n'
+            cart_message += f'{num + 1}. {product_name} - {amount} шт. по {price} р.\n'
         else:
             cart_message += f'Итого: {cart_price} р.'
 
         buttons = ([InlineKeyboardButton(text='Заказать', callback_data=f'order_{cart_price}'),
-                    InlineKeyboardButton(text='Очистить', callback_data='delete-cart')],)
+                    InlineKeyboardButton(text='Очистить', callback_data='delete-cart')],
+                   [InlineKeyboardButton(text='Закрыть', callback_data='remove-message'),
+                    InlineKeyboardButton(text='Редактировать', callback_data='correct-cart')])
         keyboard = InlineKeyboardMarkup([button for button in buttons])
 
         if update.callback_query:
@@ -198,6 +200,70 @@ dispatcher.add_handler(cart_handler)
 
 cancel_cart_handler = CallbackQueryHandler(cart, pattern=str('cancel-delete-cart'))
 dispatcher.add_handler(cancel_cart_handler)
+
+
+def edit_cart(update: Update, context: CallbackContext):
+    '''Редактирование товаров в корзине'''
+    call = update.callback_query
+    user = call.message.chat.username
+    chat_id = call.message.chat_id
+    message_id = call.message.message_id
+    command, product_id = call.data.split('_')
+    amount, product = edit_to_cart(command, user, product_id)
+    message = f'{product} - {amount} шт.'
+    if amount > 0:
+        buttons = ([InlineKeyboardButton(text='Добавить', callback_data=f'add-cart_{product_id}'),
+                    InlineKeyboardButton(text='Убрать', callback_data=f'remove-cart_{product_id}')],)
+        keyboard_edit = InlineKeyboardMarkup([button for button in buttons])
+        context.bot.edit_message_text(chat_id=chat_id,
+                                      message_id=message_id,
+                                      text=message,
+                                      reply_markup=keyboard_edit)
+    else:
+        keyboard_edit = InlineKeyboardMarkup(
+            [[InlineKeyboardButton(text='Добавить', callback_data=f'add-cart_{product_id}')]])
+        context.bot.edit_message_text(chat_id=chat_id,
+                                      message_id=message_id,
+                                      text=message,
+                                      reply_markup=keyboard_edit)
+
+
+edit_cart_handler = CallbackQueryHandler(edit_cart, pattern="^" + str('add-cart_'))
+dispatcher.add_handler(edit_cart_handler)
+
+catalog_handler = CallbackQueryHandler(edit_cart, pattern="^" + str('remove-cart_'))
+dispatcher.add_handler(catalog_handler)
+
+
+def cart_list(update: Update, context: CallbackContext):
+    '''Показать корзину покупателя/ Отмена удаления корзины'''
+    user = update.callback_query.message.chat.username
+    cart_info = show_cart(user)
+    chat_id = update.callback_query.message.chat_id
+    message_id = update.callback_query.message.message_id
+    context.bot.delete_message(chat_id=chat_id,
+                               message_id=message_id)
+    if len(cart_info) > 0:
+        for product in cart_info:
+            product_name, amount, price = product
+            product_id = get_product_id(product_name)
+            buttons = ([InlineKeyboardButton(text='Добавить', callback_data=f'add-cart_{product_id}'),
+                        InlineKeyboardButton(text='Убрать', callback_data=f'remove-cart_{product_id}')],)
+            keyboard_edit = InlineKeyboardMarkup([button for button in buttons])
+            message = f'{product_name} - {amount} шт. по {price} р.\n'
+            context.bot.send_message(chat_id=chat_id,
+                                     text=message,
+                                     reply_markup=keyboard_edit)
+
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Обновить', callback_data='cancel-delete-cart')]])
+
+        context.bot.send_message(chat_id=chat_id,
+                                 text='Для посчета суммы нажмите обновить',
+                                 reply_markup=keyboard)
+
+
+cart_list_handler = CallbackQueryHandler(cart_list, pattern=str('correct-cart'))
+dispatcher.add_handler(cart_list_handler)
 
 
 def order(update: Update, context: CallbackContext):
@@ -231,7 +297,7 @@ dispatcher.add_handler(order_cart_handler)
 def delete_cart(update: Update, context: CallbackContext):
     '''Очистить корзину'''
     call = update.callback_query
-    
+
     buttons = ([InlineKeyboardButton(text='Вернуться', callback_data='cancel-delete-cart'),
                 InlineKeyboardButton(text='Удалить', callback_data='accept-delete-cart')],)
 

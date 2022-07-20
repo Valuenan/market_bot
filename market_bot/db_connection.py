@@ -162,13 +162,19 @@ def get_products(command_filter: str, page: int) -> (list, int):
         return products, None
 
 
+def get_product_id(product_name: str) -> int:
+    '''Получить ид товара'''
+    db, cur = connect_db()
+    return cur.execute(f"SELECT id FROM products WHERE name='{product_name}'").fetchone()[0]
+
+
 def edit_to_cart(command: str, user: str, product_id: int) -> (int, str):
     '''Добавить/Удалить товар из корзины'''
     db, cur = connect_db()
     product = cur.execute(f"SELECT name FROM products WHERE id='{product_id}'").fetchone()[0]
     product_info = cur.execute(
         f"SELECT product, amount FROM carts WHERE user='{user}' and product='{product}'").fetchone()
-    if product_info is None and command == 'add':
+    if product_info is None and command == 'add' or product_info is None and command == 'add-cart':
         product_price = cur.execute(f"SELECT price FROM products WHERE name='{product}'").fetchone()[0]
         data = [user, product, 1, product_price]
         cur.execute(f"INSERT INTO carts (user, product, amount, price) VALUES (?, ?, ?, ?)", data)
@@ -176,9 +182,9 @@ def edit_to_cart(command: str, user: str, product_id: int) -> (int, str):
     elif product_info is None and command == 'remove':
         amount = 0
     else:
-        if command == 'add':
+        if command == 'add' or command == 'add-cart':
             amount = product_info[1] + 1
-        elif command == 'remove':
+        elif command == 'remove' or command == 'remove-cart':
             amount = product_info[1] - 1
         else:
             amount = 0

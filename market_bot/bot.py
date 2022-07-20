@@ -59,7 +59,9 @@ def products_catalog(update: Update, context: CallbackContext):
     chosen_category = update.callback_query.data.split('_')[1]
     page = 0
     pagination = False
-
+    call = update.callback_query
+    context.bot.delete_message(chat_id=call.message.chat.id,
+                               message_id=call.message.message_id)
     if '#' in chosen_category:
         chosen_category, page = chosen_category.split('#')
         page = int(page)
@@ -159,11 +161,20 @@ dispatcher.add_handler(catalog_handler)
 def cart(update: Update, context: CallbackContext):
     '''Показать корзину покупателя/ Отмена удаления корзины'''
     if update.callback_query:
-        user = update.callback_query.message.chat.username
+        call = update.callback_query
+        user = call.message.chat.username
+        if 'return-to-cart_' in call.data:
+            messages = call.data.split('_')[1]
+            messages = messages.split('-')[0:-1]
+            for message_id in messages:
+                context.bot.delete_message(chat_id=call.message.chat_id,
+                                           message_id=int(message_id))
+
     else:
         user = update.message.from_user.username
     cart_info = show_cart(user)
     cart_price = 0
+
     cart_message = f'Корзина {user}: \n'
     if len(cart_info) > 0:
         for num, product in enumerate(cart_info):
@@ -201,6 +212,9 @@ dispatcher.add_handler(cart_handler)
 cancel_cart_handler = CallbackQueryHandler(cart, pattern=str('cancel-delete-cart'))
 dispatcher.add_handler(cancel_cart_handler)
 
+return_cart_handler = CallbackQueryHandler(cart, pattern="^" + str('return-to-cart_'))
+dispatcher.add_handler(return_cart_handler)
+
 
 def edit_cart(update: Update, context: CallbackContext):
     '''Редактирование товаров в корзине'''
@@ -235,9 +249,11 @@ catalog_handler = CallbackQueryHandler(edit_cart, pattern="^" + str('remove-cart
 dispatcher.add_handler(catalog_handler)
 
 
+
 def cart_list(update: Update, context: CallbackContext):
     '''Показать корзину покупателя/ Отмена удаления корзины'''
     user = update.callback_query.message.chat.username
+    messages_ids = ''
     cart_info = show_cart(user)
     chat_id = update.callback_query.message.chat_id
     message_id = update.callback_query.message.message_id
@@ -251,11 +267,13 @@ def cart_list(update: Update, context: CallbackContext):
                         InlineKeyboardButton(text='Убрать', callback_data=f'remove-cart_{product_id}')],)
             keyboard_edit = InlineKeyboardMarkup([button for button in buttons])
             message = f'{product_name} - {amount} шт. по {price} р.\n'
-            context.bot.send_message(chat_id=chat_id,
-                                     text=message,
-                                     reply_markup=keyboard_edit)
+            message = context.bot.send_message(chat_id=chat_id,
+                                               text=message,
+                                               reply_markup=keyboard_edit)
+            messages_ids += f'{message.message_id}-'
 
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Обновить', callback_data='cancel-delete-cart')]])
+        keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton(text='Обновить', callback_data=f'return-to-cart_{messages_ids}')]])
 
         context.bot.send_message(chat_id=chat_id,
                                  text='Для посчета суммы нажмите обновить',

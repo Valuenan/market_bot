@@ -15,10 +15,6 @@ def db_create():
     db, cur = connect_db()
     cur = db.cursor()
 
-    cur.execute("CREATE TABLE order_num (last_order int NOT NULL)")
-
-    cur.execute("INSERT INTO order_num (last_order) VALUES ('1')")
-
     cur.execute('''CREATE TABLE carts (id INTEGER PRIMARY KEY AUTOINCREMENT,
                                         user str NOT NULL, 
                                         product str NOT NULL,
@@ -27,7 +23,6 @@ def db_create():
 
     cur.execute('''CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT,
                                         user int NOT NULL, 
-                                        order_num int NULL,
                                         products str NOT NULL,
                                         order_price int DEFAULT "0" NOT NULL)''')
 
@@ -44,12 +39,21 @@ def db_create():
                                            rests_kievskaya int NOT NULL,
                                            FOREIGN KEY(category) REFERENCES categories(id))''')
 
+    cur.execute('''CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                                               first_name str NULL,
+                                               last_name str NULL,
+                                               username str NOT NULL,
+                                               chat_id int NOT NULL,
+                                               cart_message_id int NULL,
+                                               discount int NOT NULL,
+                                               is_admin bool NOT NULL)''')
+
     db.commit()
     db.close()
 
 
 def _insert_data_to_db(table: str, cur, data: list):
-    '''Добавить (отсутсвуют в таблице) данные из exel в БД'''
+    """Добавить (отсутсвуют в таблице) данные из exel в БД"""
     if table == 'categories':
         cur.execute(f"INSERT INTO {table} (command, button_label) VALUES (?, ?)", data)
     elif table == 'products':
@@ -61,7 +65,7 @@ def _insert_data_to_db(table: str, cur, data: list):
 
 
 def _write_data(db, cur, table: str, data: list):
-    '''Запись (обновновление) данных из exel'''
+    """Запись (обновновление) данных из exel"""
     try:
         if table == 'categories':
             data_db = list(cur.execute(f"SELECT * FROM {table} WHERE command='{data[0]}'").fetchone())
@@ -88,7 +92,7 @@ def _write_data(db, cur, table: str, data: list):
 
 
 def load_data_from_exel():
-    '''Загрузка данных из exel'''
+    """Загрузка данных из exel"""
     workbook = xlrd.open_workbook("data/номенкалтура.xls")
     db, cur = connect_db()
 
@@ -137,22 +141,48 @@ def load_data_from_exel():
     db.close()
 
 
+def start_user(first_name: str, last_name: str, username: str, chat_id: int, cart_message_id: (int or None),
+               discount: int) -> (
+        str, str):
+    """Запись новых пользователей"""
+    db, cur = connect_db()
+    user = cur.execute(f"SELECT first_name FROM users WHERE chat_id='{chat_id}'").fetchone()
+    if user is None:
+        try:
+            cur.execute(f"""INSERT INTO users (first_name, last_name, username, chat_id, cart_message_id, discount, is_admin) 
+            VALUES ('{first_name}', '{last_name}', '{username}', '{chat_id}', '{cart_message_id}', '{discount}', '{False}')""")
+            text = f'Добро пожаловать {first_name}'
+            error = 'ok'
+            db.commit()
+            db.close()
+        except Exception as err:
+            text = f'''Извените {first_name} произошла ошибка, попробуйте еще раз нажать /start. 
+Если ошибка повторяется, обратитесь к администратору @Vesselii'''
+            error = err
+        return text, error
+    else:
+        return f'Добро пожаловать {user[0]}', 'ok'
+
+
 def get_category(command_filter=None) -> list:
-    '''Получить список категорй'''
+    """Получить список категорй"""
     if command_filter is not None:
         db, cur = connect_db()
         category = cur.execute(f"SELECT * FROM categories WHERE command='{command_filter}'").fetchone()
+        db.close()
         return list(category)
     else:
         db, cur = connect_db()
         categories = cur.execute("SELECT * FROM categories").fetchall()
+        db.close()
         return categories
 
 
 def get_products(command_filter: str, page: int) -> (list, int):
-    '''Получить список товаров и пагинация'''
+    """Получить список товаров и пагинация"""
     db, cur = connect_db()
     products = cur.execute(f"SELECT * FROM products WHERE category='{command_filter}'").fetchall()
+    db.close()
     if len(products) > PRODUCTS_PAGINATION_NUM:
         count_pages = len(products) // PRODUCTS_PAGINATION_NUM
         start = page * PRODUCTS_PAGINATION_NUM
@@ -163,13 +193,15 @@ def get_products(command_filter: str, page: int) -> (list, int):
 
 
 def get_product_id(product_name: str) -> int:
-    '''Получить ид товара'''
+    """Получить ид товара"""
     db, cur = connect_db()
-    return cur.execute(f"SELECT id FROM products WHERE name='{product_name}'").fetchone()[0]
+    request = cur.execute(f"SELECT id FROM products WHERE name='{product_name}'").fetchone()[0]
+    db.close()
+    return request
 
 
 def edit_to_cart(command: str, user: str, product_id: int) -> (int, str):
-    '''Добавить/Удалить товар из корзины'''
+    """Добавить/Удалить товар из корзины"""
     db, cur = connect_db()
     product = cur.execute(f"SELECT name FROM products WHERE id='{product_id}'").fetchone()[0]
     product_info = cur.execute(
@@ -198,57 +230,85 @@ def edit_to_cart(command: str, user: str, product_id: int) -> (int, str):
     return amount, product
 
 
+def old_cart_message_to_none(chat_id: int):
+    """Id открытой корзины переставить в None"""
+    db, cur = connect_db()
+    cur.execute(f"UPDATE users SET cart_message_id='{None}' WHERE chat_id='{chat_id}'")
+    db.commit()
+    db.close()
+
+
+def old_cart_message(chat_id) -> (int or None):
+    """Получение id сообщения корзины в базе наличия открытой корзины"""
+    db, cur = connect_db()
+    cart_message_id = cur.execute(f"SELECT cart_message_id FROM users WHERE chat_id='{chat_id}'").fetchone()
+    db.commit()
+    db.close()
+    if cart_message_id is None:
+        return cart_message_id
+    else:
+        return cart_message_id[0]
+
+
 def show_cart(user: str) -> list:
-    '''Получить список товаров в корзине'''
+    """Получить список товаров в корзине"""
     db, cur = connect_db()
     cart_info = cur.execute(f"SELECT product, amount, price FROM carts WHERE user='{user}'").fetchall()
     if cart_info is None:
         cart_list = []
     else:
         cart_list = cart_info
-    db.commit()
     db.close()
     return cart_list
 
 
-def db_delete_cart(user: str):
-    '''Удалить корзину'''
+def save_cart_message_id(chat_id: int, cart_message_id: int):
+    """Сохраняет id сообщения с корзиной"""
+    db, cur = connect_db()
+    cur.execute(f"UPDATE users SET cart_message_id='{cart_message_id}' WHERE chat_id='{chat_id}'")
+    db.commit()
+    db.close()
+
+
+def db_delete_cart(user: str, chat_id: int):
+    """Удалить корзину"""
     db, cur = connect_db()
     cur.execute(f"DELETE FROM carts WHERE user='{user}'")
+    cur.execute(f"UPDATE users SET cart_message_id='{None}' WHERE chat_id='{chat_id}'")
     db.commit()
     db.close()
 
 
-def load_last_order(cur) -> int:
-    '''Получить номер последнего заказа'''
-    return cur.execute('SELECT last_order FROM order_num').fetchone()[0]
-
-
-def save_last_order(db, cur, order_num: int):
-    '''Сохранить новый номер последнего заказа'''
-    cur.execute(f"UPDATE order_num SET last_order={order_num + 1}")
-    db.commit()
+def load_last_order(db, cur) -> int:
+    """Получить номер последнего заказа"""
+    prev_order = cur.execute('SELECT MAX(id) FROM orders').fetchone()[0]
     db.close()
+    if prev_order is None:
+        prev_order = 0
+    return prev_order + 1
 
 
-def save_order(user: str, order_num: int, products: str, cart_price: int):
-    '''Сохранить заказ'''
+def save_order(user: str, chat_id: int, products: str, cart_price: int):
+    """Сохранить заказ"""
     db, cur = connect_db()
     cur.execute(
-        f"INSERT INTO orders (user, order_num, products, order_price) VALUES ('{user}', '{order_num}', '{products}', '{cart_price}')")
+        f"INSERT INTO orders (user, products, order_price) VALUES ('{user}', '{products}', '{cart_price}')")
     cur.execute(f"DELETE FROM carts WHERE user='{user}'")
+    cur.execute(f"UPDATE users SET cart_message_id='{None}' WHERE chat_id='{chat_id}'")
     db.commit()
     db.close()
 
 
 def get_user_orders(user: str) -> list:
-    '''Получить список заказов пользователя'''
+    """Получить список заказов пользователя"""
     db, cur = connect_db()
-    return cur.execute(f"SELECT * FROM orders WHERE user='{user}'").fetchall()
+    request = cur.execute(f"SELECT * FROM orders WHERE user='{user}'").fetchall()
+    db.close()
+    return request
 
 
 if __name__ == '__main__':
-    '''Загружаем данные из exel, если нет базы то создать'''
+    """Загружаем данные из exel, если нет базы то создать"""
     try:
         db_create()
     except sqlite3.OperationalError:

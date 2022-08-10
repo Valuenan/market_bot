@@ -26,7 +26,8 @@ def main_keyboard(update: Update, context: CallbackContext):
     """Основаня клавиатура снизу"""
     user = update.message.from_user
     button_column = [[KeyboardButton(text='Меню'), KeyboardButton(text='Корзина')], [KeyboardButton(text='Мои заказы')]]
-    if check_user_is_admin(update.effective_chat.id) == 'True':
+    check = check_user_is_admin(update.effective_chat.id)
+    if check is not None and check[0] == 'True':
         button_column[1].append(KeyboardButton(text='Подтвердить заказ'))
     main_kb = ReplyKeyboardMarkup([button for button in button_column], resize_keyboard=True)
     text, err = start_user(user.first_name, user.last_name, user.username,
@@ -51,7 +52,7 @@ def catalog(update: Update, context: CallbackContext):
     buttons = [[]]
     row = 0
     for category in get_category():
-        button = (InlineKeyboardButton(text=category[2], callback_data=f'category_{category[1]}'))
+        button = (InlineKeyboardButton(text=category[1], callback_data=f'category_{category[1]}'))
         if category[0] % buttons_in_row == 0:
             buttons.append([])
             row += 1
@@ -77,7 +78,7 @@ def products_catalog(update: Update, context: CallbackContext):
     if '#' in chosen_category:
         chosen_category, page = chosen_category.split('#')
         page = int(page)
-    _, command, category_name = get_category(chosen_category)
+    _, command = get_category(chosen_category)
     products, pages = get_products(chosen_category, page)
     if pages:
         pagination = True
@@ -116,7 +117,7 @@ def products_catalog(update: Update, context: CallbackContext):
                                      reply_markup=keyboard_next)
 
     else:
-        context.bot.send_message(chat_id=update.effective_chat.id, text=f'Товаров из {category_name} нет')
+        context.bot.send_message(chat_id=update.effective_chat.id, text=f'Товаров из {command} нет')
 
 
 catalog_handler = CallbackQueryHandler(products_catalog, pattern="^" + str('category_'))
@@ -387,9 +388,10 @@ def orders_history(update: Update, context: CallbackContext):
     """Вызов истории покупок"""
     user = update.message.from_user.username
     orders = get_user_orders(user)
+    print(orders)
     text = ''
     for order in orders:
-        text += f'''Заказ № {order[2]} \n {order[3]} \n {"_" * 20} \n'''
+        text += f'''Заказ № {order[0]} \n {order[2]} \n {"_" * 20} \n'''
 
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Закрыть', callback_data='remove-message')]])
 

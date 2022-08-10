@@ -145,11 +145,11 @@ def load_data_from_exel():
     db.close()
 
 
-def check_user_is_admin(chat_id):
+def check_user_is_admin(chat_id) -> (str or None):
     db, cur = connect_db()
     admin = cur.execute(f"SELECT is_admin FROM users WHERE chat_id='{chat_id}'").fetchone()
     db.close()
-    return admin[0]
+    return admin
 
 
 def start_user(first_name: str, last_name: str, username: str, chat_id: int, cart_message_id: (int or None),

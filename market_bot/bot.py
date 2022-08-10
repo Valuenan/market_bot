@@ -199,7 +199,7 @@ def cart(update: Update, context: CallbackContext):
     cart_info = show_cart(user)
     cart_price = 0
 
-    cart_message = f'Корзина {user}: \n'
+    cart_message = ''
     if len(cart_info) > 0:
         for num, product in enumerate(cart_info):
             product_name, amount, price = product
@@ -328,8 +328,9 @@ def order(update: Update, context: CallbackContext):
     order_num = load_last_order(db, cur)
     call = update.callback_query
     chat_id = call.message.chat_id
+    user = call.message.chat.username
     command, cart_price = call.data.split('_')
-    order_message = f'Заказ №: {order_num} \n {call.message.text}'
+    order_message = f'Заказ №: {order_num} \n клиент: {user}: \n {call.message.text}'
     context.bot.answer_callback_query(callback_query_id=call.id,
                                       text=f'Ваш заказ номер {order_num} принят')
     context.bot.edit_message_text(text=order_message,

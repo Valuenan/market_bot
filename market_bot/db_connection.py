@@ -94,7 +94,7 @@ def _write_data(db, cur, table: str, data: list):
 
 def load_data_from_exel():
     """Загрузка данных из exel"""
-    workbook = xlrd.open_workbook("data/номенкалтура.xls")
+    workbook = xlrd.open_workbook("data/номенклатура.xls")
     db, cur = connect_db()
 
     '''Загружаем товары'''
@@ -123,7 +123,7 @@ def load_data_from_exel():
                         value = 0
 
                 if col == 4 and data[3] != 0:
-                    value /= int(data[3])
+                    value /= float(data[3])
                 elif col == 4 and data[3] == 0:
                     value = 0
                 if col == 5:

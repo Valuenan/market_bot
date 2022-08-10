@@ -24,11 +24,12 @@ def db_create():
     cur.execute('''CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT,
                                         user int NOT NULL, 
                                         products str NOT NULL,
-                                        order_price int DEFAULT "0" NOT NULL)''')
+                                        order_price int DEFAULT "0" NOT NULL,
+                                        soft_delete bool NOT NULL,
+                                        admin_check str NULL)''')
 
     cur.execute('''CREATE TABLE categories (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                                            command str NOT NULL, 
-                                            button_label str NOT NULL)''')
+                                            command str NOT NULL)''')
 
     cur.execute('''CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT,
                                            category int NOT NULL, 
@@ -55,7 +56,7 @@ def db_create():
 def _insert_data_to_db(table: str, cur, data: list):
     """Добавить (отсутсвуют в таблице) данные из exel в БД"""
     if table == 'categories':
-        cur.execute(f"INSERT INTO {table} (command, button_label) VALUES (?, ?)", data)
+        cur.execute(f"INSERT INTO {table} (command) VALUES (?)", data)
     elif table == 'products':
         cur.execute(
             f"INSERT INTO {table} (name, img, category, rests_kievskaya, price, rests_prachecniy ) VALUES (?, ?, ?, ?, ?, ?)",
@@ -74,7 +75,7 @@ def _write_data(db, cur, table: str, data: list):
         db_name = data_db.pop(1)
         if db_name == data[0]:
             if table == 'categories':
-                cur.execute(f"UPDATE {table} SET command='{data}', button_label='{data}' WHERE name='{db_name}'")
+                cur.execute(f"UPDATE {table} SET command='{data}', WHERE name='{db_name}'")
             elif table == 'products':
                 cur.execute(
                     f"""UPDATE {table} SET category={data[2]},
@@ -98,6 +99,7 @@ def load_data_from_exel():
 
     '''Загружаем товары'''
     products = workbook.sheet_by_index(0)
+    categories = []
     row = 3
     while True:
         data = []
@@ -114,8 +116,8 @@ def load_data_from_exel():
                 if col == 2:
                     '''Загружаем категории'''
                     value = products.cell_value(row, col)
-                    category = [value, value]
-                    _write_data(db, cur, 'categories', category)
+                    if value not in categories:
+                        categories.append(value)
                 if col == 3:
                     if value == '':
                         value = 0
@@ -137,8 +139,17 @@ def load_data_from_exel():
             row += 1
         except IndexError:
             break
+    for category in categories:
+        _write_data(db, cur, 'categories', [category])
 
     db.close()
+
+
+def check_user_is_admin(chat_id):
+    db, cur = connect_db()
+    admin = cur.execute(f"SELECT is_admin FROM users WHERE chat_id='{chat_id}'").fetchone()
+    db.close()
+    return admin[0]
 
 
 def start_user(first_name: str, last_name: str, username: str, chat_id: int, cart_message_id: (int or None),
@@ -292,7 +303,7 @@ def save_order(user: str, chat_id: int, products: str, cart_price: int):
     """Сохранить заказ"""
     db, cur = connect_db()
     cur.execute(
-        f"INSERT INTO orders (user, products, order_price) VALUES ('{user}', '{products}', '{cart_price}')")
+        f"INSERT INTO orders (user, products, order_price, soft_delete, admin_check) VALUES ('{user}', '{products}', '{cart_price}', 'False', 'None')")
     cur.execute(f"DELETE FROM carts WHERE user='{user}'")
     cur.execute(f"UPDATE users SET cart_message_id='{None}' WHERE chat_id='{chat_id}'")
     db.commit()
@@ -303,6 +314,34 @@ def get_user_orders(user: str) -> list:
     """Получить список заказов пользователя"""
     db, cur = connect_db()
     request = cur.execute(f"SELECT * FROM orders WHERE user='{user}'").fetchall()
+    db.close()
+    return request
+
+
+""" Административные """
+
+
+def get_waiting_orders() -> list:
+    """Возврачает список заявок ожидающих отгрузки"""
+    db, cur = connect_db()
+    request = cur.execute(f"SELECT id, user, order_price FROM orders WHERE soft_delete='False'").fetchall()
+    db.close()
+    return request
+
+
+def get_user_id_chat(customer: str) -> int:
+    """Возвращает ид чата по логину"""
+    db, cur = connect_db()
+    request = cur.execute(f"SELECT chat_id FROM users WHERE username='{customer}'").fetchone()[0]
+    db.close()
+    return request
+
+
+def soft_delete_confirmed_order(order_id: int, admin_username: str):
+    """Помечает удаленными выполненые ордера и ник администратора отметившего"""
+    db, cur = connect_db()
+    request = cur.execute(f"UPDATE orders SET soft_delete='True', admin_check='{admin_username}' WHERE id='{order_id}'")
+    db.commit()
     db.close()
     return request
 

@@ -389,7 +389,6 @@ def orders_history(update: Update, context: CallbackContext):
     """Вызов истории покупок"""
     user = update.message.from_user.username
     orders = get_user_orders(user)
-    print(orders)
     text = ''
     for order in orders:
         text += f'''Заказ № {order[0]} \n {order[2]} \n {"_" * 20} \n'''
@@ -423,7 +422,7 @@ dispatcher.add_handler(unknown_handler)
 
 def orders_waiting(update: Update, context: CallbackContext):
     """Выводит опрос по доставленным заказам"""
-    if check_user_is_admin(update.effective_chat.id) == 'True':
+    if check_user_is_admin(update.effective_chat.id)[0] == 'True':
         user = update.message.from_user.username
         orders = get_waiting_orders()
         options = ['Отмена']
@@ -482,9 +481,7 @@ def poll_orders_answer(update: Update, context: CallbackContext):
         return
     selected_options = answer.option_ids
     for order_index in selected_options:
-        print(order_index)
-
-        confirm_order = orders[order_index]
+        confirm_order = orders[order_index - 1]
         chat_id = get_user_id_chat(confirm_order[1])
         context.bot.send_message(chat_id=chat_id,
                                  text=f'Ваш заказ №{confirm_order[0]} на сумму {confirm_order[2]} ожидает вас в магазине')

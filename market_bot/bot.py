@@ -9,8 +9,10 @@ from telegram.ext import Updater, CallbackContext, CommandHandler, MessageHandle
 from market_bot.db_connection import connect_db, load_last_order, get_category, get_products, \
     save_order, get_user_orders, edit_to_cart, show_cart, db_delete_cart, get_product_id, start_user, \
     old_cart_message, save_cart_message_id, old_cart_message_to_none, check_user_is_admin, get_waiting_orders, \
-    get_user_id_chat, soft_delete_confirmed_order
+    get_user_id_chat, soft_delete_confirmed_order, save_delivery_settings, get_delivery_settings, get_user_address
 from settings import TOKEN, ORDERS_CHAT_ID
+
+users_message = {}
 
 updater = Updater(token=TOKEN)
 dispatcher = updater.dispatcher
@@ -208,9 +210,10 @@ def cart(update: Update, context: CallbackContext):
         else:
             cart_message += f'Итого: {cart_price} р.'
 
-        buttons = ([InlineKeyboardButton(text='Заказать', callback_data=f'order_{cart_price}'),
-                    InlineKeyboardButton(text='Очистить', callback_data='delete-cart')],
-                   [InlineKeyboardButton(text='Редактировать', callback_data='correct-cart')])
+        buttons = ([InlineKeyboardButton(text='Оформить заказ', callback_data='offer-stage_1_none')],
+                   [InlineKeyboardButton(text='Очистить', callback_data='delete-cart'),
+                    InlineKeyboardButton(text='Редактировать', callback_data='correct-cart')])
+
         keyboard = InlineKeyboardMarkup([button for button in buttons])
 
         if update.callback_query:
@@ -253,6 +256,105 @@ dispatcher.add_handler(cancel_cart_handler)
 
 return_cart_handler = CallbackQueryHandler(cart, pattern="^" + str('return-to-cart_'))
 dispatcher.add_handler(return_cart_handler)
+
+
+def get_offer_settings(update: Update, context: CallbackContext):
+    """Настройки заказа (доставка, вид оплаты, магазин)"""
+    global users_message
+    call = update.callback_query
+    user = call.message.chat.username
+    chat_id = update.effective_chat.id
+    message_id = call.message.message_id
+    _, settings_stage, answer = call.data.split('_')
+
+    if settings_stage == '1':
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Да', callback_data='offer-stage_2_yes'),
+                                          InlineKeyboardButton(text='Нет', callback_data='offer-stage_2_no')]])
+        context.bot.edit_message_text(chat_id=chat_id,
+                                      message_id=message_id,
+                                      text=f'Вам доставить?',
+                                      reply_markup=keyboard)
+    if settings_stage == '2' and answer == 'yes':
+        save_delivery_settings(value=True, field='delivery', chat_id=chat_id)
+        users_message[chat_id] = ''
+        street = get_user_address(chat_id)
+        buttons = [[InlineKeyboardButton(text='Сохранить адрес', callback_data='offer-stage_3_none')]]
+        if street:
+            buttons.append([InlineKeyboardButton(text=street, callback_data=f'offer-stage_3_street')])
+        keyboard = InlineKeyboardMarkup(buttons)
+        context.bot.edit_message_text(chat_id=chat_id,
+                                      message_id=message_id,
+                                      text=f'Отправьте сообщение с адресом доставки, а затем нажмите кнопку в этом сообщении "Сохранить адрес'
+                                           f'или выберите последний адрес доставки"',
+                                      reply_markup=keyboard)
+    if settings_stage == '2' and answer == 'no':
+        save_delivery_settings(value=False, field='delivery', chat_id=chat_id)
+        keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton(text='пер. Прачечный', callback_data='offer-stage_4_prachecniy'),
+              InlineKeyboardButton(text='ул. Киевская', callback_data='offer-stage_4_kievskaya')]])
+        context.bot.edit_message_text(chat_id=chat_id,
+                                      message_id=message_id,
+                                      text=f'Выберите предпочтительный магазин',
+                                      reply_markup=keyboard)
+    if settings_stage == '3':
+        if answer == "none":
+            save_delivery_settings(value=users_message[chat_id], field='delivery_street', chat_id=chat_id)
+        save_delivery_settings(value=True, field='delivery', chat_id=chat_id)
+        users_message.pop(chat_id)
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Наличными', callback_data='offer-stage_4_cash'),
+                                          InlineKeyboardButton(text='Безналично',
+                                                               callback_data='offer-stage_4_cashless')]])
+        context.bot.edit_message_text(chat_id=update.effective_chat.id,
+                                      message_id=message_id,
+                                      text=f'Выберите вид оплаты',
+                                      reply_markup=keyboard)
+    if settings_stage == '4':
+        if answer == 'prachecniy' or answer == 'kievskaya':
+            save_delivery_settings(value=answer, field='main_shop', chat_id=chat_id)
+        if answer == 'cashless':
+            save_delivery_settings(value=False, field='payment_cash', chat_id=chat_id)
+        elif answer == 'cash':
+            save_delivery_settings(value=True, field='payment_cash', chat_id=chat_id)
+        delivery_settings = _user_settings_from_db(get_delivery_settings(chat_id))
+
+        cart_price = 0
+        cart_info = show_cart(user)
+
+        for num, product in enumerate(cart_info):
+            product_name, amount, price = product
+            cart_price += price * amount
+
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Заказать', callback_data=f'order_{cart_price}')],
+                                         [InlineKeyboardButton(text='Редктировать',
+                                                               callback_data=f'offer-stage_1_none')]])
+
+        context.bot.edit_message_text(chat_id=chat_id,
+                                      message_id=message_id,
+                                      text=f'Мы доставим {delivery_settings}',
+                                      reply_markup=keyboard)
+
+
+offer_settings = CallbackQueryHandler(get_offer_settings, pattern=str('offer-stage'))
+dispatcher.add_handler(offer_settings)
+
+
+def _user_settings_from_db(data: tuple) -> str:
+    delivery = data[8]
+    main_shop = data[9]
+    payment_cash = data[10]
+    delivery_address = data[11]
+    text = ''
+    if delivery == 'False':
+        if main_shop == 'prachecniy':
+            text = 'в магазин пер. Прачечный 3 '
+        if main_shop == 'kievskaya':
+            text = 'в магазин ул. Киевская '
+    else:
+        if payment_cash == 'True':
+            text = f'по адресу {delivery_address}, оплата наличными'
+        else:
+            text = f'по адресу {delivery_address}, оплата по карте'
+    return text
 
 
 def edit_cart(update: Update, context: CallbackContext):
@@ -330,20 +432,19 @@ def order(update: Update, context: CallbackContext):
     chat_id = call.message.chat_id
     user = call.message.chat.username
     command, cart_price = call.data.split('_')
-    order_message = f'Заказ №: {order_num} \n клиент: {user}: \n {call.message.text}'
+    order_products, order_price = save_order(call.from_user.username, chat_id, call.message.text, cart_price)
+    order_message = f'Заказ №: {order_num} \n {order_products} \n {call.message.text} \n на сумму: {order_price}'
     context.bot.answer_callback_query(callback_query_id=call.id,
                                       text=f'Ваш заказ номер {order_num} принят')
-    context.bot.edit_message_text(text=order_message,
+    context.bot.edit_message_text(text=f'Клиент: {user} \n{order_message}',
                                   chat_id=call.message.chat.id,
                                   message_id=call.message.message_id)
     context.bot.forward_message(chat_id=ORDERS_CHAT_ID,
                                 from_chat_id=call.message.chat_id,
                                 message_id=call.message.message_id)
-    context.bot.edit_message_text(text=f'Ваш номер заказа №: {order_num}',
+    context.bot.edit_message_text(text=f'Ваш {order_message}',
                                   chat_id=call.message.chat.id,
                                   message_id=call.message.message_id)
-
-    save_order(call.from_user.username, chat_id, call.message.text, cart_price)
 
 
 order_cart_handler = CallbackQueryHandler(order, pattern=str('order_'))
@@ -461,8 +562,8 @@ def orders_waiting(update: Update, context: CallbackContext):
                                    message_id=message.message_id - 1)
 
 
-menu_handler = MessageHandler(Filters.text('Подтвердить заказ'), orders_waiting)
-dispatcher.add_handler(menu_handler)
+orders_waiting_handler = MessageHandler(Filters.text('Подтвердить заказ'), orders_waiting)
+dispatcher.add_handler(orders_waiting_handler)
 
 
 def poll_orders_answer(update: Update, context: CallbackContext):
@@ -492,6 +593,19 @@ menu_handler = PollAnswerHandler(poll_orders_answer)
 dispatcher.add_handler(menu_handler)
 
 """ Утилиты """
+
+
+def user_message(update: Update, context: CallbackContext):
+    global users_message
+    chat_id = update.message.chat_id
+    if chat_id in users_message:
+        users_message[chat_id] = update.message.text
+    else:
+        pass
+
+
+get_user_message = MessageHandler(Filters.text, user_message)
+dispatcher.add_handler(get_user_message)
 
 
 def remove_bot_message(update: Update, context: CallbackContext):

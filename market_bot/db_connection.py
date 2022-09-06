@@ -24,6 +24,7 @@ def db_create():
     cur.execute('''CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT,
                                         user int NOT NULL, 
                                         products str NOT NULL,
+                                        delivery_info str NOT NULL,
                                         order_price int DEFAULT "0" NOT NULL,
                                         soft_delete bool NOT NULL,
                                         admin_check str NULL)''')
@@ -47,7 +48,11 @@ def db_create():
                                                chat_id int NOT NULL,
                                                cart_message_id int NULL,
                                                discount int NOT NULL,
-                                               is_admin bool NOT NULL)''')
+                                               is_admin bool NOT NULL,
+                                               delivery bool NOT NULL,
+                                               main_shop str,
+                                               payment_cash bool NOT NULL,
+                                               delivery_street str)''')
 
     db.commit()
     db.close()
@@ -160,8 +165,8 @@ def start_user(first_name: str, last_name: str, username: str, chat_id: int, car
     user = cur.execute(f"SELECT first_name FROM users WHERE chat_id='{chat_id}'").fetchone()
     if user is None:
         try:
-            cur.execute(f"""INSERT INTO users (first_name, last_name, username, chat_id, cart_message_id, discount, is_admin) 
-            VALUES ('{first_name}', '{last_name}', '{username}', '{chat_id}', '{cart_message_id}', '{discount}', '{False}')""")
+            cur.execute(f"""INSERT INTO users (first_name, last_name, username, chat_id, cart_message_id, discount, is_admin, delivery, payment_cash) 
+            VALUES ('{first_name}', '{last_name}', '{username}', '{chat_id}', '{cart_message_id}', '{discount}', '{False}', '{False}', '{False}')""")
             text = f'Добро пожаловать {first_name}'
             error = 'ok'
             db.commit()
@@ -299,15 +304,40 @@ def load_last_order(db, cur) -> int:
     return prev_order + 1
 
 
-def save_order(user: str, chat_id: int, products: str, cart_price: int):
+def save_delivery_settings(value: bool or str, field: str, chat_id: int):
+    """Сохранить настроки заказа"""
+    db, cur = connect_db()
+    cur.execute(f"UPDATE users SET {field}='{value}' WHERE chat_id='{chat_id}'")
+    db.commit()
+    db.close()
+
+
+def get_delivery_settings(chat_id: int) -> tuple:
+    """Получить настройки заказа"""
+    db, cur = connect_db()
+    settings = cur.execute(f"SELECT * FROM users WHERE chat_id='{chat_id}'").fetchone()
+    db.close()
+    return settings
+
+
+def get_user_address(chat_id: int) -> None or str:
+    db, cur = connect_db()
+    street = cur.execute(f"SELECT delivery_street FROM users WHERE chat_id='{chat_id}'").fetchone()[0]
+    db.close()
+    return street
+
+
+def save_order(user: str, chat_id: int, delivery_info: str, cart_price: int) -> str and int:
     """Сохранить заказ"""
     db, cur = connect_db()
+    products = cur.execute(f"SELECT product FROM carts WHERE user='{user}'").fetchone()[0]
     cur.execute(
-        f"INSERT INTO orders (user, products, order_price, soft_delete, admin_check) VALUES ('{user}', '{products}', '{cart_price}', 'False', 'None')")
+        f"INSERT INTO orders (user, delivery_info, products, order_price, soft_delete, admin_check) VALUES ('{user}', '{delivery_info}', '{products}', '{cart_price}', 'False', 'None')")
     cur.execute(f"DELETE FROM carts WHERE user='{user}'")
     cur.execute(f"UPDATE users SET cart_message_id='{None}' WHERE chat_id='{chat_id}'")
     db.commit()
     db.close()
+    return products, cart_price
 
 
 def get_user_orders(user: str) -> list:
